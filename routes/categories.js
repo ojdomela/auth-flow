@@ -1,6 +1,19 @@
 const express=  require('express');
 const router = express.Router();
 const Category = require('../models/category');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
+
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (token == null) return res.sendStatus(401);
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
 
 router.get('/categories', async (req, res) => {
     const data = await Category.find();
@@ -15,7 +28,7 @@ router.get('/categories/:category', async (req, res) => {
     res.send(topic);
 });
 
-router.post('/categories/:category', async (req, res) => {
+router.post('/categories/:category', authenticateToken, async (req, res) => {
     const { category } = req.params;
     const { type, test, link } = req.body;
     if (type === 'comment') {
