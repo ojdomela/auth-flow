@@ -19,13 +19,24 @@ const authenticateToken = (req, res, next) => {
 };
 
 const generateTokens = (user) => {
-    return {
-        accessToken: jwt.sign({ name: user.name, id: user._id }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' }), refreshToken: jwt.sign({ name: user.name, id: user._id }, process.env.REFRESH_TOKEN_SECRET)
-    }
+    const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15s' });
+    const refreshToken = jwt.sign(user, process.env.REFRESH_TOKEN_SECRET);
+    return [accessToken, refreshToken];
 };
 
 const authenticateRefreshToken = (req, res, next) => {
-    req.cookies.refresh_token
+    const userToken = req.cookies.refresh_token;
+    console.log(req.cookies.refresh_token)
+
+    if (userToken == undefined) return res.sendStatus(401);
+    jwt.verify(userToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        // check if token is in the list of tokens
+        // if not, return 403
+
+        req.user = user;
+        next();
+    });
 }
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -33,14 +44,28 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json(users);
 })
 
-router.post('/', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
+    const user = await User.find({ _id: req.params.id});
+    res.json(user);
+})
+
+router.put('/:id', authenticateToken, async (req, res) => {
+    // update user flow
+    res.send('User updated');
+})
+
+router.delete('/:id', authenticateToken, async (req, res) => {
+    // delete user flow
+    res.send('User deleted');
+})
+
+router.post('/new', async (req, res) => {
     try {
         const hashedPassword = await bcrypt.hash(req.body.password, 10);
         const user = { name: req.body.name, email: req.body.email, password: hashedPassword };
         await User.create(user);
         res.status(201).send();
     } catch {
-        // duplicate name / email handling
         res.status(500).send();
     }
 })
@@ -53,8 +78,8 @@ router.post('/login', async (req, res) => {
     }
     try {
         if (await bcrypt.compare(req.body.password, user[0].password)) {
-            const {accessToken, refreshToken} = generateTokens(user[0]);
-            res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true });
+            const { accessToken, refreshToken } = generateTokens(user[0]);
+            res.cookie('refreshToken', refreshToken, { expires: date, httpOnly: true, secure: true });
             res.json({
                 accessToken
             });
@@ -68,23 +93,11 @@ router.post('/login', async (req, res) => {
     }
 })
 
-router.post('/refresh', async (req, res) => {
-    const userToken = req.cookies.refresh_token;
-
-    // Check for token in Redis Cache >
-
-    if (userToken == null) return res.sendStatus(401);
-    jwt.verify(userToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403);
-
-        const {accessToken, refreshToken} = generateTokens(user);
-
-        // 
-
-        res.cookie('accessToken', accessToken, { secure: true });
-        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true });
-        res.send("refreshed");
-    });
+router.post('/refresh', authenticateRefreshToken, async (req, res) => {
+    const [ accessToken, refreshToken ] = generateTokens(req.user);
+    res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true });
+    res.json(accessToken);
+    // set refresh token in db?
 })
 
 module.exports = router;
