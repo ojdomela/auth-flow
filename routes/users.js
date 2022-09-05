@@ -5,6 +5,8 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
+const tokens = [];
+
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -16,9 +18,15 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-const generateAccessToken = (user) => {
-    return jwt.sign({ name: user.name, id: user._id }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
+const generateTokens = (user) => {
+    return {
+        accessToken: jwt.sign({ name: user.name, id: user._id }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' }), refreshToken: jwt.sign({ name: user.name, id: user._id }, process.env.REFRESH_TOKEN_SECRET)
+    }
 };
+
+const authenticateRefreshToken = (req, res, next) => {
+    req.cookies.refresh_token
+}
 
 router.get('/', authenticateToken, async (req, res) => {
     const users = await User.find({}, { name: 1, _id: 0 });
@@ -45,21 +53,38 @@ router.post('/login', async (req, res) => {
     }
     try {
         if (await bcrypt.compare(req.body.password, user[0].password)) {
-            const accessToken = generateAccessToken(user[0]);
-            const refreshToken = jwt.sign({ name: user[0].name, id: user[0]._id }, process.env.REFRESH_TOKEN_SECRET);
-            res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, signed: true });
+            const {accessToken, refreshToken} = generateTokens(user[0]);
+            res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true });
             res.json({
-                accessToken,
-                refreshToken
+                accessToken
             });
         } else {
             // Deny access handling
-            res.send('Not Allowed');
+            res.status(403).send('Not Allowed');
         }
     } catch (error) {
         console.log(error)
         res.status(500).send();
     }
+})
+
+router.post('/refresh', async (req, res) => {
+    const userToken = req.cookies.refresh_token;
+
+    // Check for token in Redis Cache >
+
+    if (userToken == null) return res.sendStatus(401);
+    jwt.verify(userToken, process.env.REFRESH_TOKEN_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+
+        const {accessToken, refreshToken} = generateTokens(user);
+
+        // 
+
+        res.cookie('accessToken', accessToken, { secure: true });
+        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true });
+        res.send("refreshed");
+    });
 })
 
 module.exports = router;

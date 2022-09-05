@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Topic = require('./models/category');
 const userRouter = require('./routes/users');
 const categoryRouter = require('./routes/categories');
+const cookies = require("cookie-parser");
 
 const app = express();
 
@@ -15,6 +16,7 @@ mongoose.connection.on('connected', () => {
 });
 
 app.use(express.json());
+app.use(cookies());
 app.use('/users', userRouter);
 app.use('/categories', categoryRouter);
 
